@@ -3,10 +3,9 @@ import pandas as pd
 import json
 import csv
 import os
-data=pd.read_excel('JSIS.xlsx')
-# openai_api_key = os.getenv("OPENAI_API_KEY")
+data=pd.read_excel('JAIS.xlsx')
+openai_api_key = os.getenv("OPENAI_API_KEY")
 # print(openai_api_key)
-openai.api_key="API_KEY"
 
 def extract_author_address(author_address):
     # prompt=f"""
@@ -21,75 +20,54 @@ def extract_author_address(author_address):
     # # Return the data in JSON format.
     # """
 
-    prompt = f"""
-    Extract and standardize the following details from the given text containing author information:
-    
-    
-        IMPORTANT LANGUAGE REQUIREMENTS:
-        - Convert ALL text to English equivalents
-        - Transliterate non-English characters to English alphabet (e.g., ñ→n, ü→u, é→e, ç→c)
-        - Translate foreign language university names to their official English names
-        - If university has both local and English names, use the English version
-        - For author names with non-English characters, provide romanized/English alphabet version
-        
-        Fields to extract:
-        - Author: Full name as mentioned in the text (converted to English alphabet)
-        - Standardized_Author: Normalized English version for deduplication (follow rules below)
-        - University: Full university name in English (standardize abbreviations and translate foreign names)
-        - Department: Academic department in English (if mentioned, otherwise null)
-        - State: State/province in English where the university is located
-        - Country: Country name in standard English
-        - Pincode: Postal/ZIP code (if mentioned, otherwise null)
+   prompt = f"""
+        Extract, standardize, and enrich the following author and university information. 
+        Your task is to ensure consistent, deduplicated, and accurate naming across all data.
 
-        Author Name Standardization Rules:
-        1. Convert to English alphabet (transliterate non-English characters)
-        2. Use title case (First Letter Capitalized For Each Word)
-        3. For names like "Rajesh R" and "Rajesh Raj" - if first name + first letter of last name matches, use the longer version
-        4. Remove middle initials if a full middle name exists elsewhere for same person
-        5. Handle common variations:
-        - "Dr. John Smith" → "John Smith"
-        - "Prof. Jane Doe" → "Jane Doe" 
-        - "Smith, John" → "John Smith"
-        - "J. Smith" vs "John Smith" → use "John Smith" if both refer to same person
-        6. Remove extra spaces and special characters
-        7. Convert accented characters: José → Jose, François → Francois, etc.
+        IMPORTANT REQUIREMENTS:
+        1. **Author Names**
+        - Convert all names to English alphabet (transliterate non-English characters).
+        - Apply title case (First Last).
+        - Standardize across variations:
+            - "P Prakash" → "Ponduri Prakash"
+            - "Dr. John Smith" → "John Smith"
+            - "Smith, John" → "John Smith"
+            - "J. Smith" and "John Smith" → "John Smith"
+        - Ensure one unique standardized name appears everywhere for the same person.
 
-        University/Location Standardization Examples:
-        - Universidad Politécnica de Madrid → "Technical University of Madrid"
-        - WSU → "Wichita State University"
-        - MIT → "Massachusetts Institute of Technology"
-        - École Polytechnique → "Polytechnic School"
-        - Université de Paris → "University of Paris"
-        - Tsinghua Daxue → "Tsinghua University"
-        - Universidad Nacional de Colombia → "National University of Colombia"
-        - Technische Universität München → "Technical University of Munich"
-        
-        Country Standardization:
-        - US/USA/United States/Estados Unidos → "United States"
-        - UK/United Kingdom/Inglaterra → "United Kingdom"  
-        - Deutschland/Alemania → "Germany"
-        - España → "Spain"
-        - França/France → "France"
-        - Use full English country names
+        2. **University Names**
+        - Standardize and unify variations to the official English name.
+            - Example: "WSU", "Wichita Statte University", "Wichita State University USA" 
+            → "Wichita State University"
+        - Translate foreign-language university names to their official English equivalent.
+        - Always return the same name for the same university across records.
 
-        State Standardization:
-        - Use full English state/province names
-        - CA → "California", NY → "New York", etc.
-        - Convert regional names to English equivalents
+        3. **Location Data (State & Country)**
+        - Standardize country names to official English (e.g., US/USA → "United States").
+        - Standardize state/province names (e.g., CA → "California").
+        - If missing, determine the correct **state and country** for the given university 
+            using external knowledge (Google, world university data).
+        - Ensure consistency: the same university must always map to the same state and country.
+
+       
+        CRITICAL:
+        - Return only a single JSON object (not an array).
+        - Use English-only text in final output.
+        - Make sure author, university, state, and country are 100% consistent across all rows.
 
         Text to process: {author_address}
 
-        CRITICAL: Return ONLY as a single JSON object (not array) with English text only. Example format:
+        Output format:
         {{
-            "Author": "Jose Martinez",
-            "Standardized_Author": "Jose Martinez", 
-            "University": "Technical University of Madrid",
+            "Author": "Ponduri Prakash",
+            "Standardized_Author": "Ponduri Prakash", 
+            "University": "Wichita State University",
             "Department": "Computer Science",
-            "State": "Madrid",
-            "Country": "Spain",
-            "Pincode": "28040"
+            "State": "Kansas",
+            "Country": "United States",
+            "Pincode": "67260"
         }}"""
-    response=openai.chat.completions.create(
+   response=openai.chat.completions.create(
         model='gpt-3.5-turbo',
         messages=[
             {"role":"system","content":"You are an expert in structured data extraction."},
@@ -97,28 +75,32 @@ def extract_author_address(author_address):
         ],
         temperature=0
     )
-    extracted_data=response.choices[0].message.content.strip().strip('```json').strip('```')
-    try:
+   try:
+        extracted_data=response.choices[0].message.content.strip().strip('```json').strip('```')
         structured_data=json.loads(extracted_data)
-    except Exception as e:
-        print(e)
-    author_data={
+        author_data={
         'Standardized_Author': structured_data.get('Standardized_Author', None),
         'University': structured_data.get('University', None),
-        'Department': structured_data.get('Department', None),
+        # 'Department': structured_data.get('Department', None),
         'State': structured_data.get('State', None),
         'Country': structured_data.get('Country', None),
-        'Pincode': structured_data.get('Pincode', None) # assuming pincode is always present in the structured data. If not, return None.
-    }  
-    return author_data
+        # 'Pincode': structured_data.get('Pincode', None) # assuming pincode is always present in the structured data. If not, return None.
+        }
+        return author_data 
+   except Exception as e:
+        print(e)
+   return None
+   
 
 
-with open('extract.csv', mode='a', newline='', encoding='utf-8') as file:
+with open('extract1.csv', mode='a', newline='', encoding='utf-8') as file:
     writer = csv.writer(file)
-    writer.writerow(['URL','Journal_Title','Article_Title','Volume_Issue','Abstract','Keywords','Author_name','Standardized_Author','Author_email','Author_Address','Author_University','Author_department','Author_State','Author_Country','Author_pincode'])
-for index,row in data.iterrows():
-    address=row['Author_Name']+row['Author_Address']
+    writer.writerow(['URL','Journal_Title','Article_Title','Abstract','Author_name','Standardized_Author','Author_University','Author_State','Author_Country'])
+for index,row in data.iloc[2192:2250].iterrows():
+    address=row['Author_Name']+row['Author_University']
     result = extract_author_address(address)
-    with open('extract.csv', mode='a', newline='',encoding='utf-8') as file:
+    if not result:
+        continue
+    with open('extract1.csv', mode='a', newline='',encoding='utf-8') as file:
         writer=csv.writer(file)
-        writer.writerow([row['Article_URL'],row['Journal'],row['Article_Title'],row['Volume_Issue'],row['Abstract'],row['Keywords'],row['Author_Name'],result['Standardized_Author'],row['Author_Email'],row['Author_Address'],result['University'],result['Department'],result['State'],result['Country'],result['Pincode']])
+        writer.writerow([row['ArticleURL'],'Journal of the Association for Information Systems',row['Title'],row['Abstract'],row['Author_Name'],result['Standardized_Author'],result['University'],result['State'],result['Country']])
